@@ -11,7 +11,7 @@ require 'timeout'
 # -----------------------
 
 def fail_with_message(message)
-  `envman add --key BITRISE_XAMARIN_TEST_RESULT --value failed`
+#  `envman add --key BITRISE_XAMARIN_TEST_RESULT --value failed`
 
   puts "\e[31m#{message}\e[0m"
   exit(1)
@@ -254,7 +254,8 @@ options = {
   builder: nil,
   clean_build: true,
   device: nil,
-  os: nil
+  os: nil,
+  unittest_package_name: nil
 }
 
 parser = OptionParser.new do|opts|
@@ -267,6 +268,7 @@ parser = OptionParser.new do|opts|
   opts.on('-i', '--clean build', 'Clean build') { |i| options[:clean_build] = false if to_bool(i) == false }
   opts.on('-d', '--device device', 'Device') { |d| options[:device] = d unless d.to_s == '' }
   opts.on('-o', '--os os', 'OS') { |o| options[:os] = o unless o.to_s == '' }
+  opts.on('-u', '--unit tests', 'Unit Tests') { |s| options[:unittest_package_name] = s unless s.to_s == '' }
   opts.on('-h', '--help', 'Displays Help') do
     exit
   end
@@ -307,6 +309,7 @@ puts " * clean_build: #{options[:clean_build]}"
 puts " * simulator_device: #{options[:device]}"
 puts " * simulator_UDID: #{udid}"
 puts " * simulator_os: #{options[:os]}"
+puts " * unittest_package_name: #{options[:unittest_package_name]}"
 
 if options[:clean_build]
   #
@@ -325,6 +328,11 @@ end
 puts
 puts "==> Building project: #{options[:project]}"
 build_path = build_project!(options[:builder], options[:project], options[:configuration], options[:platform])
+
+if options[:unittest_package_name]
+	build_path = build_project!(options[:builder], options[:test_project], options[:configuration], options[:platform]) 
+end
+	
 fail_with_message('Failed to locate build path') unless build_path
 
 app_path = export_app(build_path)
@@ -333,14 +341,16 @@ puts "  (i) .app path: #{app_path}"
 
 #
 # Build UITest
-puts
-puts "==> Building test project: #{options[:test_project]}"
-test_build_path = build_project!(options[:builder], options[:test_project], options[:configuration], options[:platform])
-fail_with_message('failed to get test build path') unless test_build_path
+unless options[:unittest_package_name]
+	puts
+	puts "==> Building test project: #{options[:test_project]}"
+	test_build_path = build_project!(options[:builder], options[:test_project], options[:configuration], options[:platform])
+	fail_with_message('failed to get test build path') unless test_build_path
 
-dll_path = export_dll(test_build_path)
-fail_with_message('failed to get .dll path') unless dll_path
-puts "  (i) .dll path: #{dll_path}"
+	dll_path = export_dll(test_build_path)
+	fail_with_message('failed to get .dll path') unless dll_path
+	puts "  (i) .dll path: #{dll_path}"
+end
 
 #
 # Copy .app to simulator
@@ -348,21 +358,25 @@ puts
 puts '=> copy .app to simulator'
 copy_app_to_simulator!(simulator, app_path, xcode_version)
 
-#
-# Run unit test
-puts
-puts '=> run unit test'
-run_unit_test!(dll_path)
+unless options[:unittest_package_name]
+	#
+	# Run unit test
+	puts
+	puts '=> run unit test'
+	run_unit_test!(dll_path)
 
-#
-# Set output envs
-work_dir = ENV['BITRISE_SOURCE_DIR']
-result_log = File.join(work_dir, 'TestResult.xml')
+	#
+	# Set output envs
+	work_dir = ENV['BITRISE_SOURCE_DIR']
+	result_log = File.join(work_dir, 'TestResult.xml')
 
-puts
-puts '(i) The result is: succeeded'
-system('envman add --key BITRISE_XAMARIN_TEST_RESULT --value succeeded') if work_dir
+	puts
+	puts '(i) The result is: succeeded'
+	system('envman add --key BITRISE_XAMARIN_TEST_RESULT --value succeeded') if work_dir
 
-puts
-puts "(i) The test log is available at: #{result_log}"
-system("envman add --key BITRISE_XAMARIN_TEST_FULL_RESULTS_TEXT --value #{result_log}") if work_dir
+	puts
+	puts "(i) The test log is available at: #{result_log}"
+	system("envman add --key BITRISE_XAMARIN_TEST_FULL_RESULTS_TEXT --value #{result_log}") if work_dir
+else 
+	system "xcrun simctl launch booted " + options[:unittest_package_name]
+end
